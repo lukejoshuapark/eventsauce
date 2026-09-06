@@ -1,0 +1,12 @@
+version: "3"
+tasks:
+  test:
+    env:
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: "ABC123"
+      AWS_SECRET_ACCESS_KEY: "321CBA"
+    cmds:
+      - docker compose up -d
+      - defer: docker compose down
+      - cargo test
+      - aws dynamodb scan --table-name test --endpoint-url http://host.docker.internal:8993 --output json | jq

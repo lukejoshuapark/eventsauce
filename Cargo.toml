@@ -1,0 +1,8 @@
+[workspace]
+resolver = "3"
+members = [
+    "eventsauce",
+    "eventsauce-store-dynamodb",
+    "eventsauce-store-memory",
+    "eventsauce-macros"
+]

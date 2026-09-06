@@ -1,0 +1,30 @@
+[package]
+name = "eventsauce-store-memory"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+description = "An in-memory Store implementation for eventsauce, for tests and examples."
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/lukejoshuapark/eventsauce"
+keywords = ["event-sourcing", "in-memory", "testing", "store"]
+categories = ["database-implementations", "development-tools::testing"]
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+eventsauce = { version = "0.1.0", path = "../eventsauce" }
+
+serde = "1"
+serde_json = "1"
+time = "0.3"
+uuid = "1"
+
+[dev-dependencies]
+eventsauce-macros = { version = "0.1.0", path = "../eventsauce-macros", features = ["serde"] }
+
+serde = { version = "1", features = ["derive"] }
+time = { version = "0.3", features = ["serde-well-known"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+uuid = { version = "1", features = ["serde", "v4"] }

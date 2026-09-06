@@ -1,0 +1,25 @@
+[package]
+name = "eventsauce"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+description = "A small event-sourcing library."
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/lukejoshuapark/eventsauce"
+keywords = ["event-sourcing", "cqrs", "aggregate", "ddd", "events"]
+categories = ["asynchronous", "data-structures"]
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+eventsauce-macros = { version = "0.1.0", path = "../eventsauce-macros" }
+thiserror = "2"
+time = "0.3"
+uuid = "1"
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+time = { version = "0.3", features = ["serde-well-known"] }
+uuid = { version = "1", features = ["v4"] }

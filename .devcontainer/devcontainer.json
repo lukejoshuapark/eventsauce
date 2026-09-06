@@ -1,0 +1,29 @@
+{
+	"image": "ghcr.io/lukejoshuapark/instant-coffee:0.11.0",
+	"runArgs": [ "--add-host", "host.docker.internal:host-gateway" ],
+	"mounts": [
+		"source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+		"source=claude-code-config,target=/root/.claude,type=volume"
+	],
+	"containerEnv": {
+		"CLAUDE_CONFIG_DIR": "/root/.claude"
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"rust-lang.rust-analyzer",
+				"tamasfe.even-better-toml"
+			],
+			"settings": {
+				"editor.tabSize": 4,
+				"editor.insertSpaces": false,
+				"editor.detectIndentation": false,
+				"[rust]": {
+					"editor.insertSpaces": true
+				},
+				"files.insertFinalNewline": true,
+				"files.trimTrailingWhitespace": true
+			}
+		}
+	}
+}
