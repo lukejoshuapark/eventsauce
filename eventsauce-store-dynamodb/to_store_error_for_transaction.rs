@@ -34,5 +34,9 @@ pub fn to_store_error_for_transaction(
         return StoreError::MissingPrecedingEvent { stream_id, sequence_number };
     }
 
+    if cancellation.cancellation_reasons().iter().any(|reason| reason.code() == Some("TransactionConflict")) {
+        return StoreError::Contention;
+    }
+
     error.to_store_error()
 }

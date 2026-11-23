@@ -1,5 +1,5 @@
 {
-	"image": "ghcr.io/lukejoshuapark/instant-coffee:0.11.0",
+	"image": "ghcr.io/lukejoshuapark/instant-coffee:0.12.0",
 	"runArgs": [ "--add-host", "host.docker.internal:host-gateway" ],
 	"mounts": [
 		"source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",

@@ -18,6 +18,7 @@ where
     loop {
         let output = client.query()
             .table_name(table_name)
+            .consistent_read(true)
             .key_condition_expression("#s = :s AND begins_with(#n, :e)")
             .expression_attribute_names("#s", "StreamId")
             .expression_attribute_names("#n", "Name")

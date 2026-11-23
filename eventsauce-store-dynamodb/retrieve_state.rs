@@ -9,6 +9,7 @@ pub async fn retrieve_state<S : DeserializeOwned + State>(table_name: &str, clie
     let logical_version = S::logical_version();
     let output = client.get_item()
         .table_name(table_name)
+        .consistent_read(true)
         .key("StreamId", AttributeValue::S(format!("STREAM#{}", stream_id)))
         .key("Name", AttributeValue::S(format!("STATE#{}", logical_version)))
         .send()
