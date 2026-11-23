@@ -18,6 +18,10 @@ events.
 - `retrieve` always rebuilds the aggregate from its events; there is no
   persisted state to read directly.
 
+- `retrieve_events` pages through a stream's events newest first. It scans
+  and sorts every key in the store on each call, which is fine at test
+  scale.
+
 Since `MemoryStore` owns its data and can't cheaply be cloned into a new
 handle onto the same store the way a networked client can, `&MemoryStore<S>`
 also implements `Store<S>`, so a borrowed store can be used anywhere an

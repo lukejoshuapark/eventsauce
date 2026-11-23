@@ -1,7 +1,8 @@
-use crate::{create_condition_check_for_last_persisted_event, create_transact_write_item_for_event, create_transact_write_item_for_state, persist_state, retrieve_state, retrieve_stream_events, to_store_error_for_transaction};
-use eventsauce::{Aggregate, Event, State, Store, StoreError};
+use crate::{create_condition_check_for_last_persisted_event, create_transact_write_item_for_event, create_transact_write_item_for_state, persist_state, retrieve_event_page, retrieve_state, retrieve_stream_events, to_store_error_for_transaction};
+use eventsauce::{Aggregate, Event, EventPage, State, Store, StoreError};
 
 use std::marker::PhantomData;
+use std::num::NonZeroU32;
 
 use aws_sdk_dynamodb::Client;
 use serde::de::DeserializeOwned;
@@ -22,6 +23,11 @@ const MAX_TRANSACTION_ITEM_COUNT: usize = 100;
 ///   when its logical version matches `S`, falling back to rebuilding from
 ///   events otherwise. If rebuilt from events, the state is persisted back
 ///   for next time.
+///
+/// - [`retrieve_events`](Store::retrieve_events) reads a page with a
+///   descending `Query` on the stream's partition, so its cost depends on
+///   the page size, not the stream's length. If DynamoDB's 1MB response cap
+///   cuts a response short, it keeps querying until the page is full.
 pub struct DynamoDbStore<S : State> {
     _marker: PhantomData<S>,
     table_name: String,
@@ -126,5 +132,9 @@ where
         }
 
         Ok(())
+    }
+
+    async fn retrieve_events(&self, stream_id: Uuid, before: Option<u32>, limit: NonZeroU32) -> Result<Option<EventPage<S::Event>>, StoreError> {
+        retrieve_event_page::<S>(&self.table_name, &self.client, stream_id, before, limit).await
     }
 }

@@ -20,3 +20,8 @@ Your DynamoDB table must use this arrangement:
   version matches the aggregate's state, falling back to rebuilding from
   events otherwise. If rebuilt from events, the state is persisted back for
   next time.
+
+- `retrieve_events` reads a page with a descending `Query` on the stream's
+  partition, so its cost depends on the page size, not the stream's length.
+  If DynamoDB's 1MB response cap cuts a response short, it keeps querying
+  until the page is full.

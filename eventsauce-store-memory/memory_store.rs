@@ -1,8 +1,9 @@
-use crate::{format_event_key, retrieve_stream_events, to_store_error};
-use eventsauce::{Aggregate, Event, State, Store, StoreError};
+use crate::{format_event_key, retrieve_event_page, retrieve_stream_events, to_store_error};
+use eventsauce::{Aggregate, Event, EventPage, State, Store, StoreError};
 
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::num::NonZeroU32;
 use std::sync::Mutex;
 
 use serde::de::DeserializeOwned;
@@ -19,6 +20,8 @@ use uuid::Uuid;
 /// their sequence numbers have already been taken, or
 /// [`StoreError::MissingPrecedingEvent`](eventsauce::StoreError::MissingPrecedingEvent)
 /// if the event they were meant to follow is not present.
+/// [`retrieve_events`](Store::retrieve_events) scans and sorts every key in
+/// the store on each call, which is fine at test scale.
 ///
 /// Intended for tests and examples; nothing is persisted beyond the
 /// lifetime of the store.
@@ -111,6 +114,12 @@ where
 
         Ok(())
     }
+
+    async fn retrieve_events(&self, stream_id: Uuid, before: Option<u32>, limit: NonZeroU32) -> Result<Option<EventPage<S::Event>>, StoreError> {
+        let data = self.data.lock().unwrap();
+        let limit = usize::try_from(limit.get()).unwrap_or(usize::MAX);
+        retrieve_event_page::<S::Event>(&data, stream_id, before, limit)
+    }
 }
 
 /// Lets a borrowed store be used wherever an owned [`Store`] is expected
@@ -128,5 +137,9 @@ where
 
     async fn persist(&self, aggregate: Aggregate<S>) -> Result<(), StoreError> {
         (**self).persist(aggregate).await
+    }
+
+    async fn retrieve_events(&self, stream_id: Uuid, before: Option<u32>, limit: NonZeroU32) -> Result<Option<EventPage<S::Event>>, StoreError> {
+        (**self).retrieve_events(stream_id, before, limit).await
     }
 }

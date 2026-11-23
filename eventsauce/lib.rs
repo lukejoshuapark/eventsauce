@@ -77,6 +77,7 @@
 mod aggregate_error;
 mod aggregate;
 mod concurrency_safe_persist;
+mod event_page;
 mod event;
 mod state_error;
 mod state;
@@ -86,6 +87,7 @@ mod store;
 pub use aggregate_error::*;
 pub use aggregate::*;
 pub use concurrency_safe_persist::*;
+pub use event_page::*;
 pub use event::*;
 pub use eventsauce_macros::event;
 pub use state_error::*;

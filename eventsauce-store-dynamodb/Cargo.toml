@@ -1,6 +1,6 @@
 [package]
 name = "eventsauce-store-dynamodb"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.97"
 description = "A DynamoDB-backed Store implementation for eventsauce."
@@ -14,7 +14,7 @@ categories = ["database-implementations", "asynchronous"]
 path = "lib.rs"
 
 [dependencies]
-eventsauce = { version = "0.1.0", path = "../eventsauce" }
+eventsauce = { version = "0.2.0", path = "../eventsauce" }
 
 aws-sdk-dynamodb = "1"
 serde_json = "1"

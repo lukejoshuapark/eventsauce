@@ -9,10 +9,12 @@
 
 mod format_event_key;
 mod memory_store;
+mod retrieve_event_page;
 mod retrieve_stream_events;
 mod to_store_error;
 
 pub(crate) use format_event_key::*;
 pub use memory_store::*;
+pub(crate) use retrieve_event_page::*;
 pub(crate) use retrieve_stream_events::*;
 pub(crate) use to_store_error::*;

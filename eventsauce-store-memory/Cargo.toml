@@ -1,6 +1,6 @@
 [package]
 name = "eventsauce-store-memory"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.97"
 description = "An in-memory Store implementation for eventsauce, for tests and examples."
@@ -14,7 +14,7 @@ categories = ["database-implementations", "development-tools::testing"]
 path = "lib.rs"
 
 [dependencies]
-eventsauce = { version = "0.1.0", path = "../eventsauce" }
+eventsauce = { version = "0.2.0", path = "../eventsauce" }
 
 serde = "1"
 serde_json = "1"

@@ -1,7 +1,8 @@
-use eventsauce::{Aggregate, State, Store, StoreError, concurrency_safe_persist};
+use eventsauce::{Aggregate, Event, State, Store, StoreError, concurrency_safe_persist};
 use eventsauce_store_memory::MemoryStore;
 
 use std::convert::Infallible;
+use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
@@ -124,6 +125,100 @@ pub async fn test_memory_store_concurrency_safe_persist_recovers_from_contention
     assert_eq!(user2_state.last_name, "Smith");
 }
 
+#[tokio::test]
+pub async fn test_memory_store_retrieve_events_returns_newest_events_first() {
+    // Arrange.
+    let store = create_store();
+    let user_id = create_and_persist_user_with_event_count(&store, 5).await;
+
+    // Act.
+    let page = store.retrieve_events(user_id, None, NonZeroU32::new(2).unwrap()).await.unwrap().unwrap();
+
+    // Assert.
+    assert_eq!(sequence_numbers(&page.events), vec![4, 3]);
+    assert_eq!(page.next, Some(3));
+}
+
+#[tokio::test]
+pub async fn test_memory_store_retrieve_events_pages_through_whole_stream() {
+    // Arrange.
+    let store = create_store();
+    let user_id = create_and_persist_user_with_event_count(&store, 5).await;
+
+    // Act.
+    let mut pages = vec![];
+    let mut before = None;
+
+    loop {
+        let page = store.retrieve_events(user_id, before, NonZeroU32::new(2).unwrap()).await.unwrap().unwrap();
+        before = page.next;
+        pages.push(sequence_numbers(&page.events));
+
+        if before.is_none() {
+            break;
+        }
+    }
+
+    // Assert.
+    assert_eq!(pages, vec![vec![4, 3], vec![2, 1], vec![0]]);
+}
+
+#[tokio::test]
+pub async fn test_memory_store_retrieve_events_returns_whole_stream_when_limit_exceeds_length() {
+    // Arrange.
+    let store = create_store();
+    let user_id = create_and_persist_user_with_event_count(&store, 5).await;
+
+    // Act.
+    let page = store.retrieve_events(user_id, None, NonZeroU32::new(10).unwrap()).await.unwrap().unwrap();
+
+    // Assert.
+    assert_eq!(sequence_numbers(&page.events), vec![4, 3, 2, 1, 0]);
+    assert_eq!(page.next, None);
+}
+
+#[tokio::test]
+pub async fn test_memory_store_retrieve_events_treats_before_past_end_of_stream_as_newest() {
+    // Arrange.
+    let store = create_store();
+    let user_id = create_and_persist_user_with_event_count(&store, 5).await;
+
+    // Act.
+    let page = store.retrieve_events(user_id, Some(100), NonZeroU32::new(2).unwrap()).await.unwrap().unwrap();
+
+    // Assert.
+    assert_eq!(sequence_numbers(&page.events), vec![4, 3]);
+    assert_eq!(page.next, Some(3));
+}
+
+#[tokio::test]
+pub async fn test_memory_store_retrieve_events_returns_empty_page_before_creation_event() {
+    // Arrange.
+    let store = create_store();
+    let user_id = create_and_persist_user_with_event_count(&store, 5).await;
+
+    // Act.
+    let page = store.retrieve_events(user_id, Some(0), NonZeroU32::new(2).unwrap()).await.unwrap().unwrap();
+
+    // Assert.
+    assert!(page.events.is_empty());
+    assert_eq!(page.next, None);
+}
+
+#[tokio::test]
+pub async fn test_memory_store_retrieve_events_returns_none_for_unknown_stream() {
+    // Arrange.
+    let store = create_store();
+
+    // Act.
+    let first_page = store.retrieve_events(Uuid::new_v4(), None, NonZeroU32::new(2).unwrap()).await.unwrap();
+    let later_page = store.retrieve_events(Uuid::new_v4(), Some(3), NonZeroU32::new(2).unwrap()).await.unwrap();
+
+    // Assert.
+    assert!(first_page.is_none());
+    assert!(later_page.is_none());
+}
+
 // -----------------------------------------------------------------------------
 
 pub fn create_store() -> MemoryStore<UserState> {
@@ -140,6 +235,21 @@ pub async fn create_and_persist_user_with_updates(store: &MemoryStore<UserState>
     let persisted: UserAggregate = store.retrieve(user_id).await.unwrap().unwrap();
     let (state, _, version) = persisted.take();
     (user_id, state, version)
+}
+
+pub async fn create_and_persist_user_with_event_count(store: &MemoryStore<UserState>, event_count: usize) -> Uuid {
+    let user_id = Uuid::new_v4();
+    let mut user = UserAggregate::new(user_id, "John".to_string(), "Doe".to_string(), "john.doe@gmail.com".to_string());
+    for i in 1..event_count {
+        user.update_name(format!("John{}", i), "Doe".to_string());
+    }
+
+    store.persist(user).await.unwrap();
+    user_id
+}
+
+pub fn sequence_numbers(events: &[UserEvent]) -> Vec<u32> {
+    events.iter().map(|event| event.sequence_number().unwrap()).collect()
 }
 
 // -----------------------------------------------------------------------------
