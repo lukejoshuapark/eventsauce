@@ -14,7 +14,7 @@ categories = ["database-implementations", "asynchronous"]
 path = "lib.rs"
 
 [dependencies]
-eventsauce = { version = "0.2.0", path = "../eventsauce" }
+eventsauce = { version = "0.3.0", path = "../eventsauce" }
 
 aws-sdk-dynamodb = "1"
 serde_json = "1"

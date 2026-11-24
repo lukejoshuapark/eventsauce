@@ -10,15 +10,19 @@ Your DynamoDB table must use this arrangement:
 
 `DynamoDbStore`:
 
-- `persist` writes the new state and events in a single DynamoDB
-  transaction, capped at DynamoDB's 100-item transaction limit: up to 99
-  events for a new stream, or 98 if the stream already exists, since
-  persisting to an existing stream adds a condition check on the preceding
-  event as an extra transaction item.
+Each stream has a head item recording the sequence number of its newest
+event, which every persist updates alongside the events it writes.
 
-- `retrieve` prefers reading the stored state directly when its logical
-  version matches the aggregate's state, falling back to rebuilding from
-  events otherwise. If rebuilt from events, the state is persisted back for
+- `persist` writes the new events, state and head in a single DynamoDB
+  transaction, conditional on the head being where the aggregate left it.
+  With the head and state taking two of DynamoDB's 100 transaction items,
+  up to 98 events can be persisted at once.
+
+- `retrieve` reads the stored state for the aggregate's logical version and
+  the stream's head together. If the state is behind the head (e.g. because
+  code running a different logical version persisted events during a
+  rollout), the events after it are applied. If there is no stored state,
+  the aggregate is rebuilt from events and the state is persisted back for
   next time.
 
 - `retrieve_events` reads a page with a descending `Query` on the stream's

@@ -1,4 +1,4 @@
-use crate::{format_event_sort_key, MapErrToStoreError};
+use crate::{format_event_sort_key, HEAD_SORT_KEY, MapErrToStoreError};
 use eventsauce::{Event, EventPage, State, StoreError};
 
 use std::collections::HashMap;
@@ -91,7 +91,7 @@ async fn stream_exists(table_name: &str, client: &Client, stream_id: Uuid) -> Re
         .table_name(table_name)
         .consistent_read(true)
         .key("StreamId", AttributeValue::S(format!("STREAM#{}", stream_id)))
-        .key("Name", AttributeValue::S(format_event_sort_key(0)))
+        .key("Name", AttributeValue::S(HEAD_SORT_KEY.to_string()))
         .projection_expression("#s")
         .expression_attribute_names("#s", "StreamId")
         .send()

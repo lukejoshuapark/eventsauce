@@ -17,7 +17,6 @@ pub fn retrieve_event_page<E : Event + DeserializeOwned>(data: &HashMap<String, 
         return Ok(None);
     }
 
-    // Keys zero-pad the sequence number, so lexical order is sequence order.
     let upper_bound_key = before.map(|before| format_event_key(stream_id, before));
     matching_keys.retain(|key| upper_bound_key.as_ref().is_none_or(|upper_bound_key| *key < upper_bound_key));
     matching_keys.sort_unstable_by(|a, b| b.cmp(a));

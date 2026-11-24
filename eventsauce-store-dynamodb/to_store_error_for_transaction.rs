@@ -3,6 +3,7 @@ use eventsauce::StoreError;
 
 use aws_sdk_dynamodb::error::SdkError as DynamoSdkError;
 use aws_sdk_dynamodb::operation::transact_write_items::TransactWriteItemsError;
+use aws_sdk_dynamodb::types::{AttributeValue, CancellationReason};
 use uuid::Uuid;
 
 pub fn to_store_error_for_transaction(
@@ -31,7 +32,10 @@ pub fn to_store_error_for_transaction(
             return StoreError::Contention;
         }
 
-        return StoreError::MissingPrecedingEvent { stream_id, sequence_number };
+        return match head_version_from_reason(reason) {
+            Some(head_version) if head_version > sequence_number => StoreError::Contention,
+            _ => StoreError::MissingPrecedingEvent { stream_id, sequence_number }
+        };
     }
 
     if cancellation.cancellation_reasons().iter().any(|reason| reason.code() == Some("TransactionConflict")) {
@@ -39,4 +43,12 @@ pub fn to_store_error_for_transaction(
     }
 
     error.to_store_error()
+}
+
+fn head_version_from_reason(reason: &CancellationReason) -> Option<u32> {
+    let Some(AttributeValue::N(version_str)) = reason.item()?.get("Version") else {
+        return None;
+    };
+
+    version_str.parse().ok()
 }

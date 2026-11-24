@@ -1,17 +1,17 @@
-use crate::MapErrToStoreError;
+use crate::{format_event_sort_key, MapErrToStoreError};
 use eventsauce::{Event, State, StoreError};
 
 use aws_sdk_dynamodb::{types::AttributeValue, Client};
 use serde::de::DeserializeOwned;
 use uuid::Uuid;
 
-pub async fn retrieve_stream_events<S>(table_name: &str, client: &Client, stream_id: Uuid) -> Result<Option<Vec<S::Event>>, StoreError>
+pub async fn retrieve_stream_events<S>(table_name: &str, client: &Client, stream_id: Uuid, first_sequence_number: u32) -> Result<Option<Vec<S::Event>>, StoreError>
 where
     S : State,
     <S as State>::Event : Event + DeserializeOwned,
     <S as State>::CreationEvent : DeserializeOwned
 {
-    let mut next_sequence_number: u32 = 0;
+    let mut next_sequence_number = first_sequence_number;
     let mut events: Vec<S::Event> = vec![];
     let mut exclusive_start_key = None;
 
@@ -19,11 +19,12 @@ where
         let output = client.query()
             .table_name(table_name)
             .consistent_read(true)
-            .key_condition_expression("#s = :s AND begins_with(#n, :e)")
+            .key_condition_expression("#s = :s AND #n BETWEEN :lo AND :hi")
             .expression_attribute_names("#s", "StreamId")
             .expression_attribute_names("#n", "Name")
             .expression_attribute_values(":s", AttributeValue::S(format!("STREAM#{}", stream_id)))
-            .expression_attribute_values(":e", AttributeValue::S("EVENT#".to_string()))
+            .expression_attribute_values(":lo", AttributeValue::S(format_event_sort_key(first_sequence_number)))
+            .expression_attribute_values(":hi", AttributeValue::S(format_event_sort_key(u32::MAX)))
             .set_exclusive_start_key(exclusive_start_key)
             .send()
             .await

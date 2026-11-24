@@ -1,4 +1,4 @@
-use crate::{create_condition_check_for_last_persisted_event, create_transact_write_item_for_event, create_transact_write_item_for_state, persist_state, retrieve_event_page, retrieve_state, retrieve_stream_events, to_store_error_for_transaction};
+use crate::{create_transact_write_item_for_event, create_transact_write_item_for_head, create_transact_write_item_for_state, persist_state, retrieve_event_page, retrieve_state_and_head, retrieve_stream_events, to_store_error_for_transaction};
 use eventsauce::{Aggregate, Event, EventPage, State, Store, StoreError};
 
 use std::marker::PhantomData;
@@ -11,23 +11,16 @@ use uuid::Uuid;
 
 const MAX_TRANSACTION_ITEM_COUNT: usize = 100;
 
+const MAX_EVENT_COUNT: usize = MAX_TRANSACTION_ITEM_COUNT - 2;
+
 /// A [`Store`] that persists aggregates of state `S` to a DynamoDB table.
 ///
-/// - [`persist`](Store::persist) writes the new state and events in a single
-///   DynamoDB transaction, capped at DynamoDB's 100-item transaction limit:
-///   up to 99 events for a new stream, or 98 if the stream already exists,
-///   since persisting to an existing stream adds a condition check on the
-///   preceding event as an extra transaction item.
-///
-/// - [`retrieve`](Store::retrieve) prefers reading the stored state directly
-///   when its logical version matches `S`, falling back to rebuilding from
-///   events otherwise. If rebuilt from events, the state is persisted back
-///   for next time.
-///
-/// - [`retrieve_events`](Store::retrieve_events) reads a page with a
-///   descending `Query` on the stream's partition, so its cost depends on
-///   the page size, not the stream's length. If DynamoDB's 1MB response cap
-///   cuts a response short, it keeps querying until the page is full.
+/// - [`persist`](Store::persist) writes the events, state and stream head in
+///   a single transaction, so at most 98 events can be persisted at once.
+/// - [`retrieve`](Store::retrieve) reads the stored state and applies any
+///   newer events, or rebuilds from events if there is no stored state.
+/// - [`retrieve_events`](Store::retrieve_events) reads pages with a
+///   descending `Query`, so its cost depends on the page size.
 pub struct DynamoDbStore<S : State> {
     _marker: PhantomData<S>,
     table_name: String,
@@ -52,13 +45,35 @@ where
     <S as State>::CreationEvent : DeserializeOwned
 {
     async fn retrieve(&self, stream_id: Uuid) -> Result<Option<Aggregate<S>>, StoreError> {
-        if let Some((state, version)) = retrieve_state::<S>(&self.table_name, &self.client, stream_id).await? {
+        let (stored_state, head_version) = retrieve_state_and_head::<S>(&self.table_name, &self.client, stream_id).await?;
+
+        let Some(head_version) = head_version else {
+            if stored_state.is_some() {
+                return Err(StoreError::InvalidData(format!("StreamId '{}' has stored state but no head", stream_id)));
+            }
+
+            return Ok(None);
+        };
+
+        if let Some((mut state, mut version)) = stored_state {
+            if version < head_version {
+                let Some(newer_events) = retrieve_stream_events::<S>(&self.table_name, &self.client, stream_id, version + 1).await? else {
+                    return Err(StoreError::InvalidData(format!("StreamId '{}' has a head at version {}, but no events after its stored state at version {}", stream_id, head_version, version)));
+                };
+
+                for event in &newer_events {
+                    state.apply(event);
+                }
+
+                version += newer_events.len() as u32;
+            }
+
             let aggregate = Aggregate::from_state(state, version);
             return Ok(Some(aggregate));
         };
 
-        let Some(events) = retrieve_stream_events::<S>(&self.table_name, &self.client, stream_id).await? else {
-            return Ok(None);
+        let Some(events) = retrieve_stream_events::<S>(&self.table_name, &self.client, stream_id, 0).await? else {
+            return Err(StoreError::InvalidData(format!("StreamId '{}' has a head at version {}, but no events", stream_id, head_version)));
         };
 
         let aggregate = Aggregate::from_events(events)?;
@@ -87,24 +102,16 @@ where
         let first_sequence_number = first_sequence_number as u32;
         let preceding_event_sequence_number = first_sequence_number.checked_sub(1);
 
-        let max_event_count = match preceding_event_sequence_number {
-            Some(_) => MAX_TRANSACTION_ITEM_COUNT - 2,
-            None => MAX_TRANSACTION_ITEM_COUNT - 1
-        };
-
-        if events.len() > max_event_count {
+        if events.len() > MAX_EVENT_COUNT {
             return Err(StoreError::TooManyEvents {
                 stream_id,
-                max_event_count,
+                max_event_count: MAX_EVENT_COUNT,
                 actual_event_count: events.len()
             });
         }
 
-        let mut transaction_builder = self.client.transact_write_items();
-        if let Some(preceding_event_sequence_number) = preceding_event_sequence_number {
-            let last_persisted_event_check = create_condition_check_for_last_persisted_event(&self.table_name, stream_id, preceding_event_sequence_number)?;
-            transaction_builder = transaction_builder.transact_items(last_persisted_event_check);
-        }
+        let head_transaction_item = create_transact_write_item_for_head(&self.table_name, stream_id, preceding_event_sequence_number, version)?;
+        let mut transaction_builder = self.client.transact_write_items().transact_items(head_transaction_item);
 
         let state_transaction_item = create_transact_write_item_for_state(&self.table_name, state, version)?;
         transaction_builder = transaction_builder.transact_items(state_transaction_item);

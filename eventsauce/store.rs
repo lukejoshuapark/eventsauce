@@ -21,14 +21,8 @@ pub trait Store<S : State> {
     /// Retrieves a page of the given stream's events, newest first, or
     /// `None` if no stream exists with that identifier.
     ///
-    /// The page holds events with sequence numbers strictly below `before`,
-    /// or the stream's newest events when `before` is `None`. To page
-    /// through the whole stream, start with `None` and pass each page's
-    /// [`next`](EventPage::next) as `before` until it is `None`.
-    ///
-    /// A page holds exactly `limit` events, unless fewer than `limit` events
-    /// remain below `before`, in which case it holds all of them. A page for
-    /// an existing stream with no events below `before` (e.g. `before` is
-    /// `Some(0)`) is empty, with `next` set to `None`.
+    /// Pass `None` as `before` for the newest events, then each page's
+    /// [`next`](EventPage::next) to continue. A page holds `limit` events
+    /// unless fewer remain.
     fn retrieve_events(&self, stream_id: Uuid, before: Option<u32>, limit: NonZeroU32) -> impl Future<Output = Result<Option<EventPage<S::Event>>, StoreError>>;
 }

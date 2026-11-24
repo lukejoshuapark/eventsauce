@@ -4,6 +4,7 @@ use std::error::Error;
 use std::num::ParseIntError;
 
 use aws_sdk_dynamodb::error::SdkError as DynamoSdkError;
+use aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError;
 use aws_sdk_dynamodb::operation::get_item::GetItemError;
 use aws_sdk_dynamodb::operation::put_item::PutItemError;
 use aws_sdk_dynamodb::operation::query::QueryError;
@@ -51,6 +52,20 @@ impl<E : 'static + ToStoreError> ToStoreError for DynamoSdkError<E> {
             DynamoSdkError::DispatchFailure(_) => StoreError::Unavailable(self.to_string()),
             DynamoSdkError::ResponseError(_) => StoreError::Unavailable(self.to_string()),
             DynamoSdkError::ServiceError(e) => e.err().to_store_error(),
+            _ => StoreError::Other(self.to_string())
+        }
+    }
+}
+
+impl ToStoreError for BatchGetItemError {
+    fn to_store_error(&self) -> StoreError {
+        match self {
+            BatchGetItemError::InternalServerError(_) => StoreError::Unavailable(self.to_string()),
+            BatchGetItemError::InvalidEndpointException(_) => StoreError::Other(self.to_string()),
+            BatchGetItemError::ProvisionedThroughputExceededException(_) => StoreError::Ratelimit(self.to_string()),
+            BatchGetItemError::RequestLimitExceeded(_) => StoreError::Ratelimit(self.to_string()),
+            BatchGetItemError::ResourceNotFoundException(_) => StoreError::Unavailable(self.to_string()),
+            BatchGetItemError::ThrottlingException(_) => StoreError::Ratelimit(self.to_string()),
             _ => StoreError::Other(self.to_string())
         }
     }

@@ -228,7 +228,7 @@ pub async fn test_dynamodb_store_retrieve_events_fills_page_beyond_dynamodb_resp
 
     store.persist(user).await.unwrap();
 
-    // Act. Six ~300KB events can't fit in one 1MB Query response.
+    // Act.
     let page = store.retrieve_events(user_id, None, NonZeroU32::new(5).unwrap()).await.unwrap().unwrap();
 
     // Assert.
@@ -250,9 +250,57 @@ pub async fn test_dynamodb_store_retrieve_events_returns_none_for_unknown_stream
     assert!(later_page.is_none());
 }
 
+#[tokio::test]
+pub async fn test_dynamodb_store_retrieve_sees_events_persisted_by_another_logical_version() {
+    // Arrange.
+    let old_store = create_store().await;
+    let new_store = create_store_for::<UserStateNextVersion>().await;
+    let user_id = Uuid::new_v4();
+
+    let user = UserAggregate::new(user_id, "John".to_string(), "Doe".to_string(), "john.doe@gmail.com".to_string());
+    old_store.persist(user).await.unwrap();
+
+    let backfilled: Aggregate<UserStateNextVersion> = new_store.retrieve(user_id).await.unwrap().unwrap();
+    assert_eq!(backfilled.version(), 0);
+
+    let mut old_user: UserAggregate = old_store.retrieve(user_id).await.unwrap().unwrap();
+    old_user.update_name("Jackson".to_string(), "Smith".to_string());
+    old_store.persist(old_user).await.unwrap();
+
+    // Act.
+    let mut new_user: Aggregate<UserStateNextVersion> = new_store.retrieve(user_id).await.unwrap().unwrap();
+
+    // Assert.
+    assert_eq!(new_user.version(), 1);
+    assert_eq!(new_user.state().first_name, "Jackson");
+
+    new_user.mutate(|user_id| UserNameUpdatedEvent {
+        id: Uuid::new_v4(),
+        user_id,
+        occurred_at: None,
+        sequence_number: None,
+        first_name: "Jack".to_string(),
+        last_name: "Smyth".to_string()
+    });
+
+    new_store.persist(new_user).await.unwrap();
+
+    let new_user: Aggregate<UserStateNextVersion> = new_store.retrieve(user_id).await.unwrap().unwrap();
+    assert_eq!(new_user.version(), 2);
+    assert_eq!(new_user.state().first_name, "Jack");
+
+    let old_user: UserAggregate = old_store.retrieve(user_id).await.unwrap().unwrap();
+    assert_eq!(old_user.version(), 2);
+    assert_eq!(old_user.state().first_name, "Jack");
+}
+
 // -----------------------------------------------------------------------------
 
 pub async fn create_store() -> DynamoDbStore<UserState> {
+    create_store_for::<UserState>().await
+}
+
+pub async fn create_store_for<S : State>() -> DynamoDbStore<S> {
     unsafe {
         std::env::set_var("AWS_DEFAULT_REGION", "us-east-1");
         std::env::set_var("AWS_ACCESS_KEY_ID", "ABC123");
@@ -385,6 +433,46 @@ impl State for UserState {
                 self.first_name = event.first_name.clone();
                 self.last_name = event.last_name.clone();
                 self.email_address = event.email_address.clone();
+            },
+            UserEvent::NameUpdated(event) => {
+                self.first_name = event.first_name.clone();
+                self.last_name = event.last_name.clone();
+            }
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct UserStateNextVersion {
+    pub user_id: Uuid,
+    pub first_name: String,
+    pub last_name: String
+}
+
+impl State for UserStateNextVersion {
+    type Event = UserEvent;
+    type CreationEvent = UserCreatedEvent;
+
+    fn new(event: &Self::CreationEvent) -> Self {
+        UserStateNextVersion {
+            user_id: event.user_id,
+            first_name: event.first_name.clone(),
+            last_name: event.last_name.clone()
+        }
+    }
+
+    fn logical_version() -> u32 { 1 }
+
+    fn stream_id(&self) -> Uuid {
+        self.user_id
+    }
+
+    fn apply(&mut self, event: &Self::Event) {
+        match event {
+            UserEvent::Created(event) => {
+                self.user_id = event.user_id;
+                self.first_name = event.first_name.clone();
+                self.last_name = event.last_name.clone();
             },
             UserEvent::NameUpdated(event) => {
                 self.first_name = event.first_name.clone();
