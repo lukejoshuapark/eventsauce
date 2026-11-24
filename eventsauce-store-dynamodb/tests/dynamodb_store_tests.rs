@@ -294,6 +294,83 @@ pub async fn test_dynamodb_store_retrieve_sees_events_persisted_by_another_logic
     assert_eq!(old_user.state().first_name, "Jack");
 }
 
+#[tokio::test]
+pub async fn test_dynamodb_store_rejects_event_for_another_stream_when_persisting() {
+    // Arrange.
+    let store = create_store().await;
+    let (user_id, _, version) = create_and_persist_user_with_updates(&store).await;
+    let other_user_id = Uuid::new_v4();
+
+    let mut user: UserAggregate = store.retrieve(user_id).await.unwrap().unwrap();
+    user.mutate(|_| UserNameUpdatedEvent {
+        id: Uuid::new_v4(),
+        user_id: other_user_id,
+        occurred_at: None,
+        sequence_number: None,
+        first_name: "Wrong".to_string(),
+        last_name: "Stream".to_string()
+    });
+
+    // Act.
+    let result = store.persist(user).await;
+
+    // Assert.
+    assert!(matches!(result, Err(StoreError::InvalidEvent(_))));
+
+    let user: UserAggregate = store.retrieve(user_id).await.unwrap().unwrap();
+    assert_eq!(user.version(), version);
+
+    let other_user_events = store.retrieve_events(other_user_id, None, NonZeroU32::new(10).unwrap()).await.unwrap();
+    assert!(other_user_events.is_none());
+}
+
+#[tokio::test]
+pub async fn test_dynamodb_store_retrieve_fails_when_rebuilt_events_fall_short_of_head() {
+    // Arrange.
+    let store = create_store().await;
+    let (user_id, _, version) = create_and_persist_user_with_updates(&store).await;
+    delete_state(user_id).await;
+    delete_item(user_id, &format!("EVENT#{:010}", version)).await;
+
+    // Act.
+    let result = store.retrieve(user_id).await;
+
+    // Assert.
+    assert!(matches!(result, Err(StoreError::InvalidData(_))));
+}
+
+#[tokio::test]
+pub async fn test_dynamodb_store_retrieve_fails_when_caught_up_events_fall_short_of_head() {
+    // Arrange.
+    let old_store = create_store().await;
+    let new_store = create_store_for::<UserStateNextVersion>().await;
+    let user_id = Uuid::new_v4();
+
+    let user = UserAggregate::new(user_id, "John".to_string(), "Doe".to_string(), "john.doe@gmail.com".to_string());
+    old_store.persist(user).await.unwrap();
+
+    let mut new_user: Aggregate<UserStateNextVersion> = new_store.retrieve(user_id).await.unwrap().unwrap();
+    for name in ["Jackson", "Jack"] {
+        new_user.mutate(|user_id| UserNameUpdatedEvent {
+            id: Uuid::new_v4(),
+            user_id,
+            occurred_at: None,
+            sequence_number: None,
+            first_name: name.to_string(),
+            last_name: "Smith".to_string()
+        });
+    }
+
+    new_store.persist(new_user).await.unwrap();
+    delete_item(user_id, &format!("EVENT#{:010}", 2)).await;
+
+    // Act.
+    let result = old_store.retrieve(user_id).await;
+
+    // Assert.
+    assert!(matches!(result, Err(StoreError::InvalidData(_))));
+}
+
 // -----------------------------------------------------------------------------
 
 pub async fn create_store() -> DynamoDbStore<UserState> {
@@ -317,6 +394,10 @@ pub async fn create_store_for<S : State>() -> DynamoDbStore<S> {
 }
 
 pub async fn delete_state(stream_id: Uuid) {
+    delete_item(stream_id, "STATE#0").await;
+}
+
+pub async fn delete_item(stream_id: Uuid, name: &str) {
     let shared_config = aws_config::load_from_env().await;
     let dynamodb_config = aws_sdk_dynamodb::config::Builder::from(&shared_config)
         .endpoint_url("http://host.docker.internal:8993")
@@ -328,7 +409,7 @@ pub async fn delete_state(stream_id: Uuid) {
         .delete_item()
         .table_name("test")
         .key("StreamId", AttributeValue::S(format!("STREAM#{}", stream_id)))
-        .key("Name", AttributeValue::S(String::from("STATE#0")))
+        .key("Name", AttributeValue::S(name.to_string()))
         .send()
         .await
         .unwrap();

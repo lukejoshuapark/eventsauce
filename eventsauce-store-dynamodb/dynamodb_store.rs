@@ -68,6 +68,10 @@ where
                 version += newer_events.len() as u32;
             }
 
+            if version < head_version {
+                return Err(events_behind_head_error(stream_id, head_version, version));
+            }
+
             let aggregate = Aggregate::from_state(state, version);
             return Ok(Some(aggregate));
         };
@@ -77,6 +81,10 @@ where
         };
 
         let aggregate = Aggregate::from_events(events)?;
+
+        if aggregate.version() < head_version {
+            return Err(events_behind_head_error(stream_id, head_version, aggregate.version()));
+        }
 
         if let Err(e) = persist_state(&self.table_name, &self.client, aggregate.state(), aggregate.version()).await {
             let StoreError::Contention = e else {
@@ -119,6 +127,10 @@ where
         let now = time::OffsetDateTime::now_utc();
 
         for (next_sequence_number, mut event) in (first_sequence_number..).zip(events) {
+            if event.stream_id() != stream_id {
+                return Err(StoreError::InvalidEvent(format!("Event with expected sequence number {} has StreamId '{}', but is being persisted to stream '{}'", next_sequence_number, event.stream_id(), stream_id)));
+            }
+
             if let Some(assigned_sequence_number) = event.sequence_number() && assigned_sequence_number != next_sequence_number {
                 return Err(StoreError::InvalidEvent(format!("Event in stream '{}' has sequence number {}, but {} was expected", stream_id, assigned_sequence_number, next_sequence_number)));
             }
@@ -144,4 +156,8 @@ where
     async fn retrieve_events(&self, stream_id: Uuid, before: Option<u32>, limit: NonZeroU32) -> Result<Option<EventPage<S::Event>>, StoreError> {
         retrieve_event_page::<S>(&self.table_name, &self.client, stream_id, before, limit).await
     }
+}
+
+fn events_behind_head_error(stream_id: Uuid, head_version: u32, version: u32) -> StoreError {
+    StoreError::InvalidData(format!("StreamId '{}' has a head at version {}, but its events only reach version {}", stream_id, head_version, version))
 }
